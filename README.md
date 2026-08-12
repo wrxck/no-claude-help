@@ -121,8 +121,11 @@ Per repository with `git config`, or globally with `git config --global`:
 Environment: `NCH_DISABLE=1` bypasses every check for one command, `NCH_STRICT=1`
 forces strict mode, `NO_COLOR=1` gives plain output.
 
-The plugin surfaces the same settings through `/plugin` configuration:
-commit identity, whether to install git hooks automatically, and strict mode.
+The plugin surfaces the same settings through `/plugin` configuration: commit
+identity, whether to install git hooks automatically, and strict mode. Claude
+Code renders every plugin option as a text field, so the two on/off options are
+answered by typing `true` or `false`; leaving a field empty keeps its default.
+`Enter` moves to the next field, and `Enter` on **Save configuration** saves.
 
 ## Instruction files
 

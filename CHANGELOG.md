@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2
+
+- Spell out the accepted input for the two on/off plugin options. Claude Code
+  renders every `userConfig` field as a text box whatever `type` says, so a
+  boolean arrives as an empty box with no clue that it wants `true` or `false`.
+  The descriptions now say so, and say that an empty field keeps the default.
+
 ## 1.0.1
 
 - Drop the `hooks` field from `plugin.json`. Claude Code loads

@@ -11,7 +11,7 @@
       "name": "no-claude-help",
       "source": "./",
       "description": "Keeps coding agents off the byline: no co-authored-by trailers, no session URLs, no generated-with footers, no agent contributors, and every commit authored by the human.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": {
         "name": "Matt Hesketh",
         "email": "matt@heskethwebdesign.co.uk"

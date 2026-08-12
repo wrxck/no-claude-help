@@ -1,0 +1,394 @@
+#!/bin/sh
+# no-claude-help: keep coding agents off the byline.
+#
+# harness agnostic enforcement. the git hooks and ci job installed here hold
+# regardless of which agent, editor or human drives the repository.
+
+set -u
+
+NCH_VERSION="1.0.0"
+
+# --- locate ourselves ------------------------------------------------------
+
+nch_realdir() {
+	_p=$1
+	while [ -L "$_p" ]; do
+		_l=$(readlink "$_p")
+		case $_l in
+		/*) _p=$_l ;;
+		*) _p=$(dirname "$_p")/$_l ;;
+		esac
+	done
+	(cd "$(dirname "$_p")" && pwd -P)
+}
+
+NCH_BIN_DIR=$(nch_realdir "$0")
+NCH_HOME=${NCH_HOME:-$(dirname "$NCH_BIN_DIR")}
+
+[ -f "$NCH_HOME/lib/patterns.sh" ] || {
+	printf 'no-claude-help: cannot find lib/ next to %s\n' "$NCH_BIN_DIR" >&2
+	exit 127
+}
+
+# --- output ----------------------------------------------------------------
+
+if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+	NCH_C_RED=$(printf '\033[31m')
+	NCH_C_GREEN=$(printf '\033[32m')
+	NCH_C_YELLOW=$(printf '\033[33m')
+	NCH_C_BOLD=$(printf '\033[1m')
+	NCH_C_DIM=$(printf '\033[2m')
+	NCH_C_OFF=$(printf '\033[0m')
+else
+	NCH_C_RED='' NCH_C_GREEN='' NCH_C_YELLOW='' NCH_C_BOLD='' NCH_C_DIM='' NCH_C_OFF=''
+fi
+
+nch_say() { printf '%s\n' "$*" >&2; }
+nch_ok() { printf '%s  ok%s %s\n' "$NCH_C_GREEN" "$NCH_C_OFF" "$*" >&2; }
+nch_warn() { printf '%s warn%s %s\n' "$NCH_C_YELLOW" "$NCH_C_OFF" "$*" >&2; }
+nch_die() { printf '%serror%s %s\n' "$NCH_C_RED" "$NCH_C_OFF" "$*" >&2; exit 1; }
+
+# created once in the top level shell. doing this lazily inside nch_mktemp
+# would register the cleanup trap in whichever command substitution subshell
+# happened to call it first, and the directory would vanish on its exit.
+NCH_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/nch.XXXXXX") || exit 1
+trap 'rm -rf "$NCH_TMPDIR"' EXIT INT TERM
+
+nch_mktemp() { mktemp "$NCH_TMPDIR/f.XXXXXX"; }
+
+# --- configuration ---------------------------------------------------------
+
+. "$NCH_HOME/lib/patterns.sh"
+. "$NCH_HOME/lib/scan.sh"
+
+nch_gitconf() { git config --get "$1" 2>/dev/null || true; }
+
+nch_load_config() {
+	case $(nch_gitconf nch.strict) in
+	true | 1 | yes) NCH_STRICT=1 ;;
+	esac
+	NCH_EXTRA_IDENT=${NCH_EXTRA_IDENT:-$(nch_gitconf nch.extraIdentityPattern)}
+
+	NCH_EXPECT_IDENT=${NCH_EXPECT_IDENT:-}
+	if [ -z "$NCH_EXPECT_IDENT" ]; then
+		case $(nch_gitconf nch.enforceIdentity) in
+		false | 0 | no) : ;;
+		*)
+			_n=$(nch_gitconf nch.author.name)
+			_e=$(nch_gitconf nch.author.email)
+			if [ -n "$_n" ] && [ -n "$_e" ]; then
+				NCH_EXPECT_IDENT="$_n <$_e>"
+			fi
+			;;
+		esac
+	fi
+}
+
+nch_disabled() {
+	case ${NCH_DISABLE:-0} in
+	1 | true | yes) return 0 ;;
+	esac
+	return 1
+}
+
+nch_in_self_repo() {
+	_top=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+	[ -f "$_top/$NCH_SELF_MARKER" ]
+}
+
+# --- scanning entry points -------------------------------------------------
+
+nch_scan_staged() {
+	git diff --cached --no-color --unified=0 --diff-filter=ACMR 2>/dev/null | nch_scan_diff
+}
+
+nch_scan_worktree() {
+	git diff --no-color --unified=0 --diff-filter=ACMR 2>/dev/null | nch_scan_diff
+}
+
+nch_scan_range_diff() {
+	git diff --no-color --unified=0 --diff-filter=ACMR "$1" 2>/dev/null | nch_scan_diff
+}
+
+# git var falls back to config when the env vars are unset, so this sees
+# --author and GIT_AUTHOR_* overrides as well as the configured identity
+nch_current_ident() {
+	_raw=$(git var "$1" 2>/dev/null) || return 1
+	printf '%s' "$_raw" | sed 's/ [0-9][0-9]* [+-][0-9][0-9]*$//'
+}
+
+nch_check_pending_ident() {
+	_rc=0
+	if _a=$(nch_current_ident GIT_AUTHOR_IDENT); then
+		nch_check_ident author "$_a" "pending commit" || _rc=1
+	fi
+	if _c=$(nch_current_ident GIT_COMMITTER_IDENT); then
+		nch_check_ident committer "$_c" "pending commit" || _rc=1
+	fi
+	return $_rc
+}
+
+# --- git hook handlers -----------------------------------------------------
+
+cmd_hook() {
+	_name=${1:-}
+	[ $# -gt 0 ] && shift
+	nch_disabled && exit 0
+	nch_load_config
+
+	case $_name in
+	prepare-commit-msg) nch_hook_prepare_commit_msg "$@" ;;
+	commit-msg) nch_hook_commit_msg "$@" ;;
+	pre-commit) nch_hook_pre_commit "$@" ;;
+	pre-push) nch_hook_pre_push "$@" ;;
+	*) nch_die "unknown hook: $_name" ;;
+	esac
+}
+
+# opt in: strip attribution before the human ever sees the editor. off by
+# default, because silently cleaning a message teaches the agent nothing and
+# hides the violation. commit-msg rejects instead.
+nch_hook_prepare_commit_msg() {
+	_msg=${1:-}
+	[ -f "$_msg" ] || exit 0
+	case $(nch_gitconf nch.autoclean) in
+	true | 1 | yes) : ;;
+	*) exit 0 ;;
+	esac
+	_out=$(nch_mktemp)
+	nch_clean_message "$_msg" "$_out"
+	if [ $? -eq 10 ]; then
+		cat "$_out" >"$_msg"
+		nch_warn "removed tool attribution from the commit message"
+	fi
+	exit 0
+}
+
+# the commit-time gate: message plus author identity
+nch_hook_commit_msg() {
+	_msg=${1:-}
+	[ -f "$_msg" ] || exit 0
+	_find=$(nch_mktemp)
+	{
+		nch_scan_message "commit message" <"$_msg" || true
+		nch_check_pending_ident || true
+	} >"$_find"
+	nch_report "refusing to write this commit" <"$_find" || exit 1
+	exit 0
+}
+
+nch_hook_pre_commit() {
+	nch_in_self_repo && exit 0
+	_find=$(nch_mktemp)
+	nch_scan_staged >"$_find" || true
+	nch_report "staged changes credit an agent" <"$_find" || exit 1
+	exit 0
+}
+
+# the backstop: re-checks whole commit objects, so --no-verify at commit time
+# is still caught before anything leaves the machine
+nch_hook_pre_push() {
+	_rc=0
+	_find=$(nch_mktemp)
+	_zero=0000000000000000000000000000000000000000
+	while read -r _lref _lsha _rref _rsha; do
+		[ -n "${_lsha:-}" ] || continue
+		[ "$_lsha" = "$_zero" ] && continue
+		case ${_rsha:-} in
+		'' | "$_zero")
+			# new branch: check whatever no remote already knows about
+			for _s in $(git rev-list "$_lsha" --not --remotes 2>/dev/null | head -200); do
+				nch_scan_commits -1 "$_s" || _rc=1
+			done
+			;;
+		*) nch_scan_commits "$_rsha..$_lsha" || _rc=1 ;;
+		esac
+	done >"$_find"
+	nch_report "refusing to push commits that credit an agent" <"$_find" || exit 1
+	exit 0
+}
+
+# --- scan, clean, identity -------------------------------------------------
+
+cmd_scan() {
+	nch_load_config
+	_mode=auto _range="" _path="" _rc=0
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--staged) _mode=staged ;;
+		--worktree) _mode=worktree ;;
+		--all) _mode=all ;;
+		--text) _mode=text ;;
+		--content)
+			_mode=content
+			_path=${2:-}
+			shift
+			;;
+		--range)
+			_mode=range
+			_range=${2:-}
+			shift
+			;;
+		--file)
+			_mode="file"
+			shift
+			break
+			;;
+		-*) nch_die "unknown option: $1" ;;
+		*) break ;;
+		esac
+		shift
+	done
+
+	_find=$(nch_mktemp)
+	case $_mode in
+	text) nch_scan_message "stdin" >"$_find" || true ;;
+	content)
+		[ -n "$_path" ] || nch_die "--content needs the destination path"
+		nch_scan_file_content "$_path" >"$_find" || true
+		;;
+	file)
+		for _f in "$@"; do
+			[ -f "$_f" ] || continue
+			nch_scan_file_content "$_f" <"$_f" >>"$_find" || true
+		done
+		;;
+	staged) nch_scan_staged >"$_find" || true ;;
+	worktree) nch_scan_worktree >"$_find" || true ;;
+	range)
+		[ -n "$_range" ] || nch_die "--range needs a revision range"
+		{
+			nch_scan_commits "$_range" || true
+			nch_scan_range_diff "$_range" || true
+		} >"$_find"
+		;;
+	all)
+		{
+			nch_scan_commits --all || true
+			git ls-files | while IFS= read -r _f; do
+				[ -f "$_f" ] || continue
+				nch_scan_file_content "$_f" <"$_f" || true
+			done
+		} >"$_find"
+		;;
+	auto)
+		{
+			nch_scan_staged || true
+			nch_scan_worktree || true
+			nch_scan_commits --not --remotes || true
+		} >"$_find"
+		;;
+	esac
+
+	nch_report "attribution found" <"$_find" || _rc=1
+	[ "$_rc" = "0" ] && nch_ok "no agent attribution found"
+	return $_rc
+}
+
+cmd_clean() {
+	[ $# -ge 1 ] || nch_die "usage: nch clean <message-file>"
+	nch_load_config
+	_out=$(nch_mktemp)
+	nch_clean_message "$1" "$_out"
+	_s=$?
+	cat "$_out" >"$1"
+	[ "$_s" = "10" ] && nch_ok "stripped attribution from $1"
+	return 0
+}
+
+cmd_identity() {
+	nch_load_config
+	case ${1:-show} in
+	show)
+		printf 'author     %s\n' "$(nch_current_ident GIT_AUTHOR_IDENT || echo unset)"
+		printf 'committer  %s\n' "$(nch_current_ident GIT_COMMITTER_IDENT || echo unset)"
+		printf 'enforced   %s\n' "${NCH_EXPECT_IDENT:-(not enforced)}"
+		;;
+	set)
+		shift
+		_id=${1:-}
+		[ -n "$_id" ] || nch_die 'usage: nch identity set "Name <email>"'
+		_n=${_id%% <*}
+		_e=${_id#*<}
+		_e=${_e%>}
+		[ "$_n" != "$_id" ] || nch_die 'identity must be "Name <email>"'
+		git config nch.author.name "$_n"
+		git config nch.author.email "$_e"
+		git config user.name "$_n"
+		git config user.email "$_e"
+		nch_ok "commits will be authored as $_n <$_e>"
+		;;
+	*) nch_die "usage: nch identity [show|set]" ;;
+	esac
+}
+
+cmd_policy() { cat "$NCH_HOME/lib/policy.md"; }
+
+cmd_help() {
+	cat <<'EOF'
+no-claude-help: keep coding agents off the byline.
+
+usage: nch <command> [options]
+
+  install [--global] [--author "Name <email>"] [--rules|--rules-all] [--ci]
+          [--strict] [--all]
+          install git hooks. --global covers every repository on the machine,
+          whatever agent or editor drives it.
+  uninstall [--global]
+
+  scan [--staged|--worktree|--all|--range <a..b>|--text|--file <paths...>]
+       [--content <path>]
+          report attribution. with no option, scans staged, unstaged and
+          unpushed work. --text and --content read stdin.
+  clean <message-file>
+          strip attribution lines from a commit or pr message, in place.
+  identity [show|set "Name <email>"]
+          show or pin the identity every commit must carry.
+  rules [--all]
+          write the policy into AGENTS.md, CLAUDE.md and other harness
+          instruction files.
+  doctor  report which protections are active here.
+  policy  print the policy text.
+
+  hook <name>
+          internal, invoked by the installed git hooks.
+
+environment:
+  NCH_DISABLE=1   bypass every check once
+  NCH_STRICT=1    also reject generic [bot] identities
+  NO_COLOR=1      plain output
+EOF
+}
+
+# --- dispatch --------------------------------------------------------------
+
+nch_need_installer() { . "$NCH_HOME/lib/install.sh"; }
+
+_cmd=${1:-help}
+[ $# -gt 0 ] && shift
+case $_cmd in
+install)
+	nch_need_installer
+	cmd_install "$@"
+	;;
+uninstall)
+	nch_need_installer
+	cmd_uninstall "$@"
+	;;
+rules)
+	nch_need_installer
+	cmd_rules "$@"
+	;;
+doctor)
+	nch_need_installer
+	cmd_doctor "$@"
+	;;
+scan | check) cmd_scan "$@" ;;
+clean | clean-message) cmd_clean "$@" ;;
+identity) cmd_identity "$@" ;;
+policy) cmd_policy "$@" ;;
+hook) cmd_hook "$@" ;;
+version | --version | -v) printf 'no-claude-help %s\n' "$NCH_VERSION" ;;
+help | --help | -h) cmd_help ;;
+*) nch_die "unknown command: $_cmd (try: nch help)" ;;
+esac

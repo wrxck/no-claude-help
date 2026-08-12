@@ -1,0 +1,6 @@
+This marker tells no-claude-help that it is scanning its own source tree.
+
+lib/patterns.sh necessarily contains every string the scanner looks for, and
+tests/ contains fixtures built from them, so the file content rules would flag
+this repository against itself. The commit message and identity rules still
+apply here in full.

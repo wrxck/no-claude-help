@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+- Drop the `hooks` field from `plugin.json`. Claude Code loads
+  `hooks/hooks.json` automatically, so naming it in the manifest registered the
+  same file twice and the plugin failed to load its hooks.
+
 ## 1.0.0
 
 First release.

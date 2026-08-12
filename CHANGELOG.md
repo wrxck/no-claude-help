@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3
+
+- Ask the two on/off plugin options as `y/n` questions, defaulting to yes for
+  automatic hook installation and no for strict mode.
+- Parse those answers in the plugin's own code rather than relying on Claude
+  Code's boolean coercion, which accepts only `1`, `true`, `yes` and `on`, so a
+  bare `y` silently read as false.
+
 ## 1.0.2
 
 - Spell out the accepted input for the two on/off plugin options. Claude Code

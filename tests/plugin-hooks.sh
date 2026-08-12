@@ -108,6 +108,22 @@ expect "an ordinary edit is allowed" allow pre-write.sh \
 expect "a session url in a comment is denied" deny pre-write.sh \
 	'{"cwd":".","tool_input":{"file_path":"src/db.js","new_string":"// see https://claude.ai/code/session_01abcdef\n"}}'
 
+# --- plugin option parsing -------------------------------------------------
+
+# claude code renders every option as text and its own boolean coercion
+# rejects a bare "y", so the answers are parsed in common.sh
+# shellcheck source=/dev/null
+. "$ROOT/hooks/scripts/common.sh" </dev/null
+
+for v in y Y yes YES true 1 on " y "; do
+	if nch_opt_bool "$v" n; then ok "option \"$v\" reads as yes"; else bad "option \"$v\" reads as yes"; fi
+done
+for v in n N no NO false 0 off nope; do
+	if nch_opt_bool "$v" y; then bad "option \"$v\" reads as no"; else ok "option \"$v\" reads as no"; fi
+done
+if nch_opt_bool "" y; then ok "an empty answer takes a yes default"; else bad "an empty answer takes a yes default"; fi
+if nch_opt_bool "" n; then bad "an empty answer takes a no default"; else ok "an empty answer takes a no default"; fi
+
 # --- session start ---------------------------------------------------------
 
 OUT=$(printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$ROOT" |

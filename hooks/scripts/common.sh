@@ -13,10 +13,24 @@ NCH_EVENT=$(mktemp "${TMPDIR:-/tmp}/nch-event.XXXXXX") || exit 0
 trap 'rm -f "$NCH_EVENT"' EXIT INT TERM
 cat >"$NCH_EVENT"
 
-case ${CLAUDE_PLUGIN_OPTION_STRICT_MODE:-false} in
-true | 1 | yes) NCH_STRICT=1 ;;
-*) NCH_STRICT=0 ;;
-esac
+# plugin options arrive as free text: claude code renders every userConfig
+# field as a text box, and its own boolean coercion rejects a bare "y", so
+# parse the answer here instead. an empty answer takes the default.
+# nch_opt_bool <value> <default y|n> -> 0 when yes
+nch_opt_bool() {
+	_v=$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+	[ -n "$_v" ] || _v=$2
+	case $_v in
+	y | yes | true | 1 | on | enable | enabled) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+if nch_opt_bool "${CLAUDE_PLUGIN_OPTION_STRICT_MODE:-}" n; then
+	NCH_STRICT=1
+else
+	NCH_STRICT=0
+fi
 export NCH_STRICT
 
 # read a dotted path out of the event, printing nothing when absent

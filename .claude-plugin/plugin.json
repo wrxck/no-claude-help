@@ -1,7 +1,7 @@
 {
   "name": "no-claude-help",
   "displayName": "no claude help",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Keeps coding agents off the byline: no co-authored-by trailers, no session URLs, no generated-with footers, no agent contributors, and every commit authored by the human.",
   "author": {
     "name": "Matt Hesketh",
@@ -26,16 +26,16 @@
       "required": false
     },
     "auto_install_git_hooks": {
-      "type": "boolean",
-      "title": "Install git hooks automatically",
-      "description": "Type true or false. Leave empty for the default (true), which installs the enforcement hooks into each repository you open so the rule holds for other agents, editors and CI too.",
-      "default": true
+      "type": "string",
+      "title": "Install git hooks automatically? (Y/n)",
+      "description": "Type y or n. Leave empty for yes. Installs the enforcement hooks into each repository you open, so the rule holds for other agents, editors and CI too.",
+      "default": "y"
     },
     "strict_mode": {
-      "type": "boolean",
-      "title": "Strict mode",
-      "description": "Type true or false. Leave empty for the default (false). When true, generic [bot] commit identities are rejected as well as known AI agents; release and dependency bots stay allowed.",
-      "default": false
+      "type": "string",
+      "title": "Strict mode? (y/N)",
+      "description": "Type y or n. Leave empty for no. When y, generic [bot] commit identities are rejected as well as known AI agents; release and dependency bots stay allowed.",
+      "default": "n"
     }
   }
 }

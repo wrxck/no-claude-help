@@ -125,6 +125,7 @@ _nch_content_awk() {
 		P_MANIFEST  = ENVIRON["NCH_PATH_MANIFEST"]
 		P_LICENSE   = ENVIRON["NCH_PATH_LICENSE"]
 		STRONG      = ENVIRON["NCH_IDENT_STRONG"]
+		STRONG_WORD = ENVIRON["NCH_IDENT_STRONG_WORD"]
 		ATTRIB_KEY  = ENVIRON["NCH_CONTENT_ATTRIB_KEY"]
 		PERSON      = ENVIRON["NCH_CONTENT_PERSON"]
 		COPYRIGHT   = ENVIRON["NCH_CONTENT_COPYRIGHT"]
@@ -165,7 +166,7 @@ _nch_content_awk() {
 			emit("names an agent in a copyright line")
 		else if (kind == "manifest" && (low ~ ATTRIB_KEY || text ~ PERSON))
 			emit("names an agent in an author or maintainer field")
-		else if (kind == "other" && low ~ ATTRIB_KEY)
+		else if (kind == "other" && low ~ ATTRIB_KEY && low ~ STRONG_WORD)
 			emit("credits an agent as an author or contributor")
 	}
 

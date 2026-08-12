@@ -24,9 +24,16 @@ bad() {
 	[ -n "${2:-}" ] && printf '        %s\n' "$2"
 }
 
+# the hooks resolve paths against the event's cwd, and this repository carries
+# the marker that exempts it from content rules, so run the cases from a
+# scratch directory instead
+SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/nch-hooktest.XXXXXX")
+trap 'rm -rf "$SCRATCH"' EXIT INT TERM
+
 decision() {
 	# $1 script, $2 event json -> "deny" or "allow"
-	_out=$(printf '%s' "$2" | "$ROOT/hooks/scripts/$1" 2>/dev/null)
+	_ev=$(printf '%s' "$2" | sed "s|\"cwd\":\".\"|\"cwd\":\"$SCRATCH\"|")
+	_out=$(printf '%s' "$_ev" | "$ROOT/hooks/scripts/$1" 2>/dev/null)
 	case $_out in
 	*'"permissionDecision":"deny"'*) printf 'deny\n' ;;
 	*) printf 'allow\n' ;;

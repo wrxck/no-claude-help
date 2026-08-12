@@ -6,7 +6,7 @@
 
 set -u
 
-NCH_VERSION="1.0.3"
+NCH_VERSION="1.0.4"
 
 # --- locate ourselves ------------------------------------------------------
 
@@ -240,45 +240,59 @@ cmd_scan() {
 		shift
 	done
 
+	# this repository has to contain every string the scanner looks for, so the
+	# marker file exempts it from content rules. messages and identities are
+	# still checked here, and everywhere else nothing is exempt.
+	_content=1
+	nch_in_self_repo && _content=0
+
 	_find=$(nch_mktemp)
 	case $_mode in
 	text) nch_scan_message "stdin" >"$_find" || true ;;
 	content)
 		[ -n "$_path" ] || nch_die "--content needs the destination path"
-		nch_scan_file_content "$_path" >"$_find" || true
+		[ "$_content" = "1" ] && { nch_scan_file_content "$_path" >"$_find" || true; }
 		;;
 	file)
 		for _f in "$@"; do
 			[ -f "$_f" ] || continue
+			[ "$_content" = "1" ] || continue
 			nch_scan_file_content "$_f" <"$_f" >>"$_find" || true
 		done
 		;;
-	staged) nch_scan_staged >"$_find" || true ;;
-	worktree) nch_scan_worktree >"$_find" || true ;;
+	staged) [ "$_content" = "1" ] && { nch_scan_staged >"$_find" || true; } ;;
+	worktree) [ "$_content" = "1" ] && { nch_scan_worktree >"$_find" || true; } ;;
 	range)
 		[ -n "$_range" ] || nch_die "--range needs a revision range"
 		{
 			nch_scan_commits "$_range" || true
-			nch_scan_range_diff "$_range" || true
+			[ "$_content" = "1" ] && { nch_scan_range_diff "$_range" || true; }
 		} >"$_find"
 		;;
 	all)
 		{
 			nch_scan_commits --all || true
-			git ls-files | while IFS= read -r _f; do
-				[ -f "$_f" ] || continue
-				nch_scan_file_content "$_f" <"$_f" || true
-			done
+			if [ "$_content" = "1" ]; then
+				git ls-files | while IFS= read -r _f; do
+					[ -f "$_f" ] || continue
+					nch_scan_file_content "$_f" <"$_f" || true
+				done
+			fi
 		} >"$_find"
 		;;
 	auto)
 		{
-			nch_scan_staged || true
-			nch_scan_worktree || true
+			if [ "$_content" = "1" ]; then
+				nch_scan_staged || true
+				nch_scan_worktree || true
+			fi
 			nch_scan_commits --not --remotes || true
 		} >"$_find"
 		;;
 	esac
+
+	[ "$_content" = "0" ] &&
+		nch_warn "$NCH_SELF_MARKER present, content rules skipped for this repository"
 
 	nch_report "attribution found" <"$_find" || _rc=1
 	[ "$_rc" = "0" ] && nch_ok "no agent attribution found"

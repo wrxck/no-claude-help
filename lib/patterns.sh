@@ -57,6 +57,11 @@ NCH_PATH_MANIFEST='(^|/)(package\.json|package-lock\.json|pyproject\.toml|setup\
 
 NCH_PATH_LICENSE='(^|/)(LICEN[CS]E|COPYING|NOTICE)([.-][A-Za-z0-9]+)?$'
 
+# in an ordinary source file the agent name has to stand alone to count as a
+# credit. glued into a longer identifier it is code, not a byline, so
+# CLAUDE_PLUGIN_OPTION_AUTHOR_IDENTITY and claudeAuthorName stay quiet
+NCH_IDENT_STRONG_WORD='(^|[^a-z0-9_])('"$NCH_IDENT_STRONG"')([^a-z0-9_]|$)'
+
 # words that turn a mention into a credit
 NCH_CONTENT_ATTRIB_KEY='author|contributor|maintainer|copyright|credit|acknowledge?ment|owner|created[ _-]?by|written[ _-]?by|developed[ _-]?by|built[ _-]?by|made[ _-]?by|thanks[ _-]?to|team|holder'
 
@@ -75,7 +80,7 @@ NCH_SELF_MARKER='.no-claude-help-source'
 # awk processes escape sequences in -v assignments, which turns \(c\) into a
 # capture group and \. into "any character". reading through ENVIRON instead
 # passes every pattern to the regex engine exactly as written here.
-export NCH_IDENT_STRONG NCH_IDENT_WEAK NCH_IDENT_ROBOT NCH_IDENT_ALLOWED_BOTS \
+export NCH_IDENT_STRONG NCH_IDENT_STRONG_WORD NCH_IDENT_WEAK NCH_IDENT_ROBOT NCH_IDENT_ALLOWED_BOTS \
 	NCH_MSG_BAD_TRAILER NCH_MSG_COAUTHOR NCH_MSG_CREDIT NCH_MSG_ROBOT_LINE \
 	NCH_MSG_ROBOT_CONTEXT NCH_MSG_SESSION_URL NCH_PATH_ATTRIBUTION \
 	NCH_PATH_MANIFEST NCH_PATH_LICENSE NCH_CONTENT_ATTRIB_KEY \

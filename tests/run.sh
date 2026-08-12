@@ -193,6 +193,9 @@ denies "a readme acknowledgement of an agent is blocked" \
 allows "documentation about anthropic is accepted" \
 	sh -c "cd '$R' && printf '# API notes\n\nThe anthropic endpoint returns json.\n' > api.md && git add -A && git commit -qm 'document the api'"
 
+allows "an env var named after an agent is accepted in code" \
+	sh -c "cd '$R' && printf 'IDENT=\${CLAUDE_PLUGIN_OPTION_AUTHOR_IDENTITY:-}\nclaudeAuthorName = null;\n' > opts.sh && git add -A && git commit -qm 'read the option'"
+
 allows "an explicit nch-allow line is accepted" \
 	sh -c "cd '$R' && printf 'Co-Authored-By: Claude <noreply@anthropic.com> nch-allow\n' > sample.txt && git add -A && git commit -qm 'add a fixture'"
 
@@ -251,10 +254,10 @@ allows "scan --text passes clean prose" \
 	sh -c "printf 'fix the parser so it handles empty input\n' | '$NCH' scan --text"
 
 denies "scan --content flags an AUTHORS body" \
-	sh -c "printf 'Claude <noreply@anthropic.com>\n' | '$NCH' scan --content AUTHORS"
+	sh -c "cd '$WORK' && printf 'Claude <noreply@anthropic.com>\n' | '$NCH' scan --content AUTHORS"
 
 allows "scan --content passes a clean AUTHORS body" \
-	sh -c "printf 'Real Human <human@example.com>\n' | '$NCH' scan --content AUTHORS"
+	sh -c "cd '$WORK' && printf 'Real Human <human@example.com>\n' | '$NCH' scan --content AUTHORS"
 
 allows "doctor runs" sh -c "cd '$R' && '$NCH' doctor"
 
@@ -346,6 +349,29 @@ denies "scan --range catches a bad commit on a branch" \
 
 allows "scan --range passes a clean range" \
 	sh -c "cd '$R' && '$NCH' scan --range main..main"
+
+# --- the marker file -------------------------------------------------------
+
+# a repository that has to contain the patterns themselves is exempt from the
+# content rules, but never from the message or identity rules
+R=$(newrepo selfmarker)
+RESET_REPO=$R
+(cd "$R" && : >.no-claude-help-source && git add -A && git commit -qm "mark the source tree")
+
+allows "the marker exempts content in this repository" \
+	sh -c "cd '$R' && printf 'Claude <noreply@anthropic.com>\n' > AUTHORS && git add -A && git commit -qm 'add a fixture'"
+
+allows "scan --range skips content under the marker" \
+	sh -c "cd '$R' && '$NCH' scan --range HEAD~1..HEAD"
+
+denies "the marker does not exempt commit messages" \
+	sh -c "cd '$R' && echo z > z.txt && git add -A && git commit -q -F - <<'EOF'
+add a fixture
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF"
+
+RESET_REPO=""
 
 # --- chaining and uninstall ------------------------------------------------
 

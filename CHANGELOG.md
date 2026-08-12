@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.4
+
+- Require the agent name to stand alone before an ordinary source file counts
+  as a credit. `CLAUDE_PLUGIN_OPTION_AUTHOR_IDENTITY` and `claudeAuthorName`
+  are code, not a byline, and were being flagged. Attribution files, manifests
+  and licences are unchanged.
+- Honour the `.no-claude-help-source` marker in every content scan, not only in
+  the pre-commit hook, so `nch scan` and the CI job agree with it. Message and
+  identity rules still apply in a marked repository.
+
 ## 1.0.3
 
 - Ask the two on/off plugin options as `y/n` questions, defaulting to yes for

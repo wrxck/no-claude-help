@@ -13,7 +13,7 @@ NOTE=""
 
 if nch_opt_bool "${CLAUDE_PLUGIN_OPTION_AUTO_INSTALL_GIT_HOOKS:-}" y &&
 	git rev-parse --git-dir >/dev/null 2>&1; then
-	HOOK="$(git rev-parse --git-dir)/hooks/commit-msg"
+	HOOK="$(git rev-parse --git-path hooks/commit-msg)"
 	if ! grep -q 'installed by no-claude-help' "$HOOK" 2>/dev/null; then
 		IDENT=${CLAUDE_PLUGIN_OPTION_AUTHOR_IDENTITY:-}
 		if [ -n "$IDENT" ]; then

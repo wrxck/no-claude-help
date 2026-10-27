@@ -400,6 +400,47 @@ else
 	bad "uninstall restores the original hook" "hook missing entirely"
 fi
 
+# tracked hooks must keep working when the checkout moves, so the chain is found from the top level
+R=$(mktemp -d "$WORK/tracked.XXXXXX")
+(
+	cd "$R" || exit 1
+	git init -q -b main
+	git config user.name "Real Human"
+	git config user.email "human@example.com"
+	echo seed >seed.txt
+	git add -A
+	git commit -qm seed
+	mkdir .githooks
+	printf '#!/bin/sh\ntouch "$PWD/.tracked-ran"\nexit 0\n' >.githooks/pre-commit
+	chmod +x .githooks/pre-commit
+	git config core.hooksPath .githooks
+	"$NCH" install >/dev/null 2>&1
+)
+if grep -q 'CHAIN="$(git rev-parse --show-toplevel 2>/dev/null)/.githooks/pre-commit.local"' \
+	"$R/.githooks/pre-commit"; then
+	ok "a chained hook in the work tree is found from the top level"
+else
+	bad "a chained hook in the work tree is found from the top level" "$(grep CHAIN "$R/.githooks/pre-commit")"
+fi
+MOVED="$WORK/tracked-moved"
+cp -R "$R" "$MOVED"
+(cd "$MOVED" && echo a >a.txt && git add -A && git commit -qm "add a thing")
+if [ -f "$MOVED/.tracked-ran" ] && [ ! -f "$R/.tracked-ran" ]; then
+	ok "a copy of the checkout runs its own chained hook"
+else
+	bad "a copy of the checkout runs its own chained hook"
+fi
+
+# session start must see hooks under core.hooksPath, or it reinstalls them every session
+printf '# kept\n' >>"$R/.githooks/commit-msg"
+printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$R" |
+	CLAUDE_PLUGIN_OPTION_AUTO_INSTALL_GIT_HOOKS=y "$ROOT/hooks/scripts/session-start.sh" >/dev/null 2>&1
+if grep -q '^# kept$' "$R/.githooks/commit-msg"; then
+	ok "session start leaves hooks under core.hooksPath alone"
+else
+	bad "session start leaves hooks under core.hooksPath alone"
+fi
+
 # --- summary ---------------------------------------------------------------
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

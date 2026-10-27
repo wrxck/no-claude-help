@@ -9,7 +9,7 @@ NCH_HOOKS='pre-commit prepare-commit-msg commit-msg pre-push'
 # the installed hooks stay tiny and delegate, so updating the engine does not
 # mean reinstalling hooks. they also chain into whatever hook was there first.
 nch_write_shim() {
-	_name=$1 _dest=$2 _nchbin=$3 _chain=$4
+	_name=$1 _dest=$2 _nchbin=$3 _chain=$4 _top=${5:-}
 	{
 		printf '#!/bin/sh\n'
 		printf '# installed by no-claude-help %s, do not edit\n' "$NCH_VERSION"
@@ -18,7 +18,12 @@ nch_write_shim() {
 		printf 'NCH="%s"\n' "$_nchbin"
 		printf '[ -x "$NCH" ] || NCH="$(git rev-parse --git-dir 2>/dev/null)/no-claude-help/bin/nch"\n'
 		printf '[ -x "$NCH" ] || NCH="$(command -v nch 2>/dev/null)"\n'
-		printf 'CHAIN="%s"\n' "$_chain"
+		# a chained hook inside the work tree is found from the top level, so the shim works in every checkout
+		if [ -n "$_top" ] && [ "${_chain#"$_top"/}" != "$_chain" ]; then
+			printf 'CHAIN="$(git rev-parse --show-toplevel 2>/dev/null)/%s"\n' "${_chain#"$_top"/}"
+		else
+			printf 'CHAIN="%s"\n' "$_chain"
+		fi
 		if [ "$_name" = "pre-push" ]; then
 			# pre-push gets its ref list on stdin, so replay it for the chained hook
 			printf 'IN="$(mktemp)"; trap '"'"'rm -f "$IN"'"'"' EXIT; cat >"$IN"\n'
@@ -128,7 +133,7 @@ cmd_install() {
 				_chain="$_dest.local"
 			fi
 		fi
-		nch_write_shim "$_h" "$_dest" "$_vendor/bin/nch" "$_chain"
+		nch_write_shim "$_h" "$_dest" "$_vendor/bin/nch" "$_chain" "$_top"
 	done
 	nch_ok "git hooks installed in $_hooksdir"
 
